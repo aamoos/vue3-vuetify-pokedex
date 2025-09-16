@@ -1,0 +1,17 @@
+html,
+body,
+#app {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+}
+
+.poke-type-chip {
+    text-transform: capitalize;
+}
+
+.sprite {
+    image-rendering: pixelated;
+}
