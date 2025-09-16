@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
-import { getPokemonWithKo, getType } from '@/api/poke'
+import { getPokemon, getType } from '@/api/poke'
 import TypeChips from '@/components/TypeChips.vue'
 
 
@@ -17,7 +17,7 @@ watch(() => props.idOrName, async (val) => {
 if (!val) return
 loading.value = true
 try {
-const p = await getPokemonWithKo(val)
+const p = await getPokemon(val)
 data.value = p
 // compute weaknesses (union of double_damage_from of each type)
 const typeNames = p.types.map((t: any) => t.type.name)

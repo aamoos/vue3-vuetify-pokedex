@@ -2,8 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useFavorites } from '@/stores/favorites'
 
-// ⬇️ Ko 버전 API 사용: getAllTypesKo, getPokemonWithKo
-import { listPokemon, getPokemonWithKo, getAllTypesKo } from '@/api/poke'
+import { listPokemon, getPokemon, getAllTypes } from '@/api/poke'
 
 import PokemonCard from '@/components/PokemonCard.vue'
 import PokemonDetail from '@/components/PokemonDetail.vue'
@@ -16,12 +15,11 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const search = ref('')
 
-// ⬇️ 타입 셀렉트는 [{title: ko, value: en}] 구조로 사용
-const allTypes = ref<{ title: string; value: string }[]>([])
-const type = ref<string | null>(null) // value는 영문(en) 유지 (API /type/{en} 호출용)
+const allTypes = ref<string[]>([])              // ✅ 문자열 배열로 원복
+const type = ref<string | null>(null)           // ✅ 값 자체가 영문 타입명
 
 const drawerOpen = ref(false)
-const selected = ref<number | null>(null) // 상세는 id로 열기
+const selected = ref<string | number | null>(null)
 
 let offset = 0
 const limit = 24
@@ -32,56 +30,53 @@ async function loadMore(reset = false) {
     error.value = null
     if (reset) { items.value = []; offset = 0 }
 
-    // 🔎 검색 우선 (Ko 버전)
+    // 🔎 검색(영문 이름 or 숫자 ID만)
     if (search.value.trim()) {
       try {
-        const p = await getPokemonWithKo(search.value.trim().toLowerCase())
+        const p = await getPokemon(search.value.trim().toLowerCase())
         items.value = [p]
         return
       } catch {
-        error.value = '포켓몬을 찾을 수 없습니다.'
+        error.value = 'No Pokémon found.'
         items.value = []
         return
       }
     }
 
-    // 🏷️ 타입 필터 모드 (값은 영문)
+    // 🏷️ 타입 필터 모드 (영문 타입명 그대로 사용)
     if (type.value) {
       const res = await fetch(`https://pokeapi.co/api/v2/type/${type.value}`)
       const tjson: any = await res.json()
       const names: string[] = tjson.pokemon.map((p: any) => p.pokemon.name)
       const slice = names.slice(offset, offset + limit)
-      const detailed = await Promise.all(slice.map(n => getPokemonWithKo(n)))
+      const detailed = await Promise.all(slice.map(n => getPokemon(n)))
       items.value.push(...detailed)
       offset += limit
       return
     }
 
-    // 📄 기본 리스트 모드
+    // 📄 기본 리스트
     const list = await listPokemon(offset, limit)
-    const detailed = await Promise.all(list.results.map(r => getPokemonWithKo(r.name)))
+    const detailed = await Promise.all(list.results.map(r => getPokemon(r.name)))
     items.value.push(...detailed)
     offset += limit
   } catch (e: any) {
-    error.value = e?.message ?? '로딩에 실패했습니다.'
+    error.value = e?.message ?? 'Failed to load Pokémon.'
   } finally {
     loading.value = false
   }
 }
 
 function openDetail(p: any) {
-  selected.value = p.id   // ⬅️ id로 넘겨주세요 (한글/영문 혼선 방지)
+  selected.value = p.name   // ✅ 영문 이름으로 열어도 OK (id 사용 원하면 p.id)
   drawerOpen.value = true
 }
 
-// 검색 중에는 더보기 숨김
 const hasMore = computed(() => !search.value)
 
 onMounted(async () => {
   store.load()
-  const typesKo = await getAllTypesKo()
-  // Vuetify v-select는 객체를 넣으면 title/value를 자동으로 사용함
-  allTypes.value = typesKo.map(t => ({ title: t.ko, value: t.en }))
+  allTypes.value = await getAllTypes()   // ✅ Ko 버전 대신 원래 함수
   loadMore(true)
 })
 </script>
@@ -93,7 +88,7 @@ onMounted(async () => {
         <v-text-field
           v-model="search"
           prepend-inner-icon="mdi-magnify"
-          label="포켓몬 이름 또는 번호로 검색"
+          label="Search by name or ID"
           density="comfortable"
           hide-details
           clearable
@@ -103,8 +98,8 @@ onMounted(async () => {
 
         <v-select
           v-model="type"
-          :items="allTypes"
-          label="타입으로 필터"
+          :items="allTypes" 
+          label="Filter by type"
           density="comfortable"
           hide-details
           clearable
@@ -112,11 +107,10 @@ onMounted(async () => {
           @update:model-value="() => loadMore(true)"
         />
 
-        <!-- 현재 선택된 타입 한글 라벨 표시 -->
-        <TypeChips v-if="type" :types="[allTypes.find(t => t.value === type)?.title || type]" />
+        <TypeChips v-if="type" :types="[type]" />
 
         <v-spacer />
-        <v-btn prepend-icon="mdi-refresh" @click="() => loadMore(true)">새로고침</v-btn>
+        <v-btn prepend-icon="mdi-refresh" @click="() => loadMore(true)">Refresh</v-btn>
       </div>
     </v-card>
 
@@ -127,9 +121,9 @@ onMounted(async () => {
         <v-col v-for="p in items" :key="p.id" cols="12" sm="6" md="4" lg="3">
           <PokemonCard
             :id="p.id"
-            :name="p.displayName || p.name"
+            :name="p.name"
             :sprite="p.sprites?.other?.['official-artwork']?.front_default || p.sprites?.front_default"
-            :types="p.displayTypes?.length ? p.displayTypes : p.types.map((t:any)=>t.type.name)"
+            :types="p.types.map((t:any)=>t.type.name)"
             :favorite="store.has(p.id)"
           >
             <template #actions>
@@ -145,7 +139,7 @@ onMounted(async () => {
                 append-icon="mdi-chevron-right"
                 @click="openDetail(p)"
               >
-                상세보기
+                Details
               </v-btn>
             </template>
           </PokemonCard>
@@ -154,7 +148,7 @@ onMounted(async () => {
 
       <div class="d-flex justify-center my-6" v-if="hasMore">
         <v-btn :loading="loading" @click="loadMore()" size="large" prepend-icon="mdi-chevron-down">
-          더 불러오기
+          Load more
         </v-btn>
       </div>
 
